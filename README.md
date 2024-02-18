@@ -37,9 +37,4 @@ install_github("jaroyle/oSCR")
 ## Outputs
 The script outputs an HTML notebook detailing the analysis process and results.
 
-## Contact Information
-- **Dr. Rob Davis**: s226043789@mandela.ac.za
-- **Rachael Leeman**: rachael.leeman2015@my.ntu.ac.uk
-- **Dr. Richard Yarnell**: richard.yarnell@ntu.ac.uk
-
 For more information on the methodology and findings, refer to the associated publications and the comments within the script.

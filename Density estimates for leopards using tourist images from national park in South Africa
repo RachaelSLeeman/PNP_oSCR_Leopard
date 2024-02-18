@@ -1,0 +1,430 @@
+#Title: "oSCR analysis with non viable habitat removed for Tourist
+  #image data using a 2km2 grid over reserve with central centroid location'
+#output: html_notebook
+# Script written by: Dr. Rob Davis, Nelson Mandela University 
+                      # & Nottingham Trent University 
+                      # s226043789@mandela.ac.za
+# Anlysis undertaken by: Rachael Leeman, Nottingham Trent University  
+                      # rachael.leeman2015@my.ntu.ac.uk
+# Pilanesberg Shapefiles provided by: Dr. Richard Yarnell, Nottingham Trent 
+                                      # Univeristy
+                                      # richard.yarnell@ntu.ac.uk
+  
+  #Script ran using RStudio 2023.09.1+494 "Desert Sunflower" Release 
+  #(cd7011dce393115d3a7c3db799dda4b1c7e88711, 2023-10-16) for macOS
+
+# Script last ran: 13th December 2023
+  
+##############################################################################
+
+####Packages####
+
+rm(list=ls())
+
+# Download packages if needed ----
+install.packages("githubinstall")
+install.packages("devtools")
+library(githubinstall)
+library(devtools)
+#install oSCR directly from github
+install_github("jaroyle/oSCR")
+library(oSCR)
+
+# then set working directory and check location
+#setwd(choose.dir())
+getwd()
+
+
+## Step 1: Read in capture history & trap detection files ----
+## This section reads in the capture history and trap detection data files from 
+## CSV files named "Tourist_16.17.18.21.22Ready.csv" and "tdf.leop.csv," 
+## respectively. It also performs some data cleaning operations. 
+
+# enter the detection history and trap detection:
+
+# detection history - ALL SESSIONS TOGETHER IN ONE FILE.
+leop_edf <- read.csv("Tourist_16.17.18.21.22Ready.csv")
+
+### NOTE: sometimes for some reason when you import your datafiles 
+## you get some additional unnecessary data in the first column, so sometimes you have to
+# duplicate the column and then remove the first one - code for this below
+#leop_edf <- subset(leop_edf)[,c(2:6)]
+# once sorted then.....
+
+# check data
+head(leop_edf)
+
+tail(leop_edf)
+
+# trap array
+leop.tdf <- read.csv("tdf.leop.csv")
+
+# change X and Y to km scale
+leop.tdf$X <- leop.tdf$X/1000
+leop.tdf$Y <- leop.tdf$Y/1000
+leop.tdf
+
+# NOTE: Sometimes same problem as before so duplicate TRAP_ID 
+#and removed first column
+#leop.tdf <- subset(leop.tdf)[,c(2:4)]
+
+# check final tdf (should now have logroad)
+head(leop.tdf)
+tail(leop.tdf)
+
+
+## Step 2: Format data, make scrFrame and state space ##
+## Format Data and Create State Space: This part of the script processes 
+## the data, creates an oSCR data object, and generates a state space for 
+## the analysis. It also defines session-specific information.
+
+leopard.data <- 
+  data2oscr(edf = leop_edf, #one edf for whole study - the co-ordinates of grid, or camera trap locations etc.
+            tdf = list(leop.tdf,leop.tdf,leop.tdf,leop.tdf,
+                       leop.tdf), #I had 5 sessions, hence this is put in 5 times
+            sess.col = which(colnames(leop_edf)%in%"Session"), 
+            id.col = which(colnames(leop_edf)%in%"Animal_ID"),
+            occ.col = which(colnames(leop_edf)%in%"SO"), 
+            trap.col = which(colnames(leop_edf)%in%"TRAP_ID"),
+            sex.col = which(colnames(leop_edf)%in%"Sex"),
+            sex.nacode = "NA",
+            K = c(180,181,182,180,183), #This is number of days per survey/session 
+            ntraps = rep(68)) #number of traps/ cells/centriod/grid squares per session
+                              # ours was consistent throughout, you may like the tdf section above need to add in additional infromation if this varied
+
+
+# make scrFrame
+leop.sf <- leopard.data$scrFrame
+
+# get summary
+leop.sf
+
+par(mfrow=c(3,3),mar=c(1,1,1,1),oma=c(0,0,0,0))
+plot(leop.sf, ax = F) #plot a summary
+
+#### MAKING BUFFER IN GIS ####
+
+library(sf)
+library(raster)
+library(ggplot2)
+library(viridis)
+
+par(mfrow=c(1,1))
+
+############################# MAKE STATE SPACE ############################
+# import shapefiles, plot points and make a buffer around trap array
+
+# import your shapefiles
+PNP <- read_sf("Pilanesberg.shp") #This was my whole survey site
+traps <- read_sf("Centroids_small_PNP.shp") #This was the central point of my grid.
+trap_poly <- read_sf("Traps_polygon.shp")
+
+# plot area
+plot(st_geometry(PNP),main=NULL, col="grey90")
+# plot cameras
+plot(st_geometry(traps), pch = 3, cex = 0.75, col="red",add=TRUE)
+
+# define buffer size - here 15km - this was specifically worked out for my site, as we could not quantify survey effort, please see paragraph on survey effort in data analysis section within the methods for further infromation
+buff <- 15000
+# make buffer polygon
+ss_polygon <- st_buffer(trap_poly, dist = buff)
+
+# plot buffer, study site and traps to check buffer is OK
+plot(st_geometry(ss_polygon), lwd = 2, col = "white")
+plot(st_geometry(PNP),main=NULL, col="grey90",add=TRUE)
+plot(st_geometry(trap_poly), lwd = 0.5,col = "yellow",add=TRUE)
+plot(st_geometry(traps), pch = 3, cex = 0.75, col = "red",add=TRUE)
+# Check the polygon lines up right around your traps or area
+
+#==========================================================================
+# creating state space and activity centres, remove non-viable habitat
+
+# we made a state space with 2km2 cells - This was due to a number of reasons
+# see Leeman et al paper - specifcally tourist image section in methods for details on this
+
+# make grid with 2km2 cells - needed for activity centres
+grd <- sf::st_make_grid(ss_polygon, cellsize = 1000) 
+# grid centres (will be the activity centres)
+points <- sf::st_make_grid(ss_polygon, cellsize = 1000, what="centers") 
+
+# add grid to previous plot
+plot(grd, add = TRUE) 
+# add activity centre points 
+plot(points, cex = 0.25, add = TRUE)
+
+# plot again and trim the points to the buffer zone - we did this to remove non-viable habitat from the buffer where we were sure no leopards would live, if this is not necessary for your study you can disregard down to line 196
+# plot buffer
+plot(st_geometry(ss_polygon), lwd = 2, col = "white")
+# add study site
+plot(st_geometry(PNP),main=NULL, col="grey90",add=TRUE)
+# add activity centre points but trimmed to buffer
+plot(points[ss_polygon], cex = 0.5, add = TRUE)
+
+# make a shapefile with the points within the buffer
+buffer_points <- st_as_sf(points[ss_polygon])
+
+# import shapefile with surrounding infrastructure
+PNP_infra <- read_sf("sa_infra_PNP.shp")
+
+# plot the activity centre points
+plot(st_geometry(buffer_points), pch = 16, cex = 0.75, col="grey")
+# plot the surrounding infrastructure (towns/cities/non-viable habitat) 
+plot(st_geometry(PNP_infra), lwd=2, add=TRUE)
+
+# can see that areas within the state space are not viable habitat and these
+# points need to be removed
+
+# check for activity centres that are within the infrastructure file
+# these points will be assigned a value of '1' in the nogo column created
+buffer_points$nogo <- lengths(st_within(buffer_points, PNP_infra))
+# extract points that have a value of '0' - i.e. not located in non-viable habitat
+clip_points_sp <- buffer_points[buffer_points$nogo == 0,]
+
+# now plot all and check it has worked
+# plot buffer
+plot(st_geometry(ss_polygon), lwd=2)
+# plot study site
+plot(st_geometry(PNP),main=NULL, col="grey90",add=TRUE)
+# plot your trimmed activity centre points with non-viable removed
+plot(clip_points_sp, pch=16, cex=0.3, col="blue", add=TRUE)
+# check this against the infrastructure 
+plot(st_geometry(PNP_infra), lwd=1, add=TRUE)
+
+# can see that points have been removed from non-viable habitat
+# so we've made our state space with a 15km buffer, 2km2 activity centres
+# and activity centres removed from areas that are not feasible
+
+# get coordinates
+state_space <- st_coordinates(clip_points_sp)
+# make dataframe
+#### NOTE: HERE I'VE CHANGED IT TO THE KILOMETRE SCALE, BEFORE WAS ON METRE
+#### SCALE AND THIS MESSED IT UP A BIT WHEN WE TRIED TO RUN MODELS!
+ss_df <- data.frame(X = st_coordinates(clip_points_sp)[,1]/1000,
+                    Y = st_coordinates(clip_points_sp)[,2]/1000)
+
+View(ss_df)
+
+# export coordinates as a .csv for use in oSCR
+write.csv(ss_df, file = "state_space.csv")
+
+# make final state space a shapefile
+statespacePNP <- st_as_sf(clip_points_sp)
+# export state space as a shapefile if needed - can check in GIS
+st_write(statespacePNP, "state_space.shp")
+
+# state space file for each session
+ss <- list(ss_df,ss_df,ss_df,ss_df,ss_df)
+
+
+
+## Step 3: Model fitting ##
+## Model Fitting: In this section, various SCR models are fitted to the data. 
+## Different models are used to explore factors like sex-specific space use, 
+## sex-specific detection, and session-specific density.
+
+
+# null model
+m0 <- oSCR.fit(list(D~1,p0~1,sig~1), leop.sf, ss, trimS=6, encmod = "B")
+
+# sex-specific space use
+m1 <- oSCR.fit(list(D~1,p0~1,sig~sex), leop.sf, ss, trimS=6, encmod = "B")
+
+# sex specific detection
+m2 <- oSCR.fit(list(D~1,p0~sex,sig~1), leop.sf, ss, trimS=6, encmod = "B")
+
+# sex specific detection and space use
+m3 <- oSCR.fit(list(D~1,p0~sex,sig~sex), leop.sf, ss, trimS=6, encmod = "B")
+
+# session specific density
+m4 <- oSCR.fit(list(D~session,p0~1,sig~1), leop.sf, ss, trimS=6, encmod = "B")
+
+# session specific density and sex specific space use
+m5 <- oSCR.fit(list(D~session,p0~1,sig~sex), leop.sf, ss, trimS=6, encmod = "B")
+
+# session specific density and sex specific detection
+m6 <- oSCR.fit(list(D~session,p0~sex,sig~1), leop.sf, ss, trimS=6, encmod = "B")
+
+# session specific density and sex specific detection and space use
+m7 <- oSCR.fit(list(D~session,p0~sex,sig~sex), leop.sf, ss, trimS=6, encmod = "B")
+
+
+##~~~~~~~ save model outputs - This saves it having to be re-ran over again
+save(m0,m1,m2,m3,m4,m5,m6,m7,
+     file="SCR_models_output_15kmBuffer.RData"
+)
+
+
+## Step 4: Model comparison ##
+## The fitted models are evaluated and compared using 
+## model selection criteria, such as AIC (Akaike Information Criterion).
+
+# fit list
+fl <- fitList.oSCR(list(m0,m1,m2,m3,m4,m5,
+                        m6,m7),
+                   rename=TRUE)
+fl
+
+# model selection
+ms <- modSel.oSCR(fl)
+ms
+
+# aic table
+ms$aic.tab
+
+
+## Step 5: Model inference ---- you will need to make changes here to the 
+## script depending on your results ##
+## The script selects a top model (in this case, m3) and conducts further 
+## inference, including estimating parameters related to detection, density, 
+## and sex-specific behavior.
+
+top.model <- m3
+
+# model output:
+
+m3
+
+# detection lower for males (-0.295)
+# sigma higher for females in this case as males (0.456)
+
+# sigma
+pred.df.sig <- data.frame(session = factor(c(1)), sex=factor(c(0,1)))
+pred.sig <- get.real(model = top.model, type = "sig", newdata = pred.df.sig)
+pred.sig
+
+# density
+# define the values we want to make prediction for
+pred.df.dens <- data.frame(Session = factor(c(1)))
+
+# make predictions on the real scale
+(pred.dens <- get.real(model = top.model, type = "dens", newdata = pred.df.dens))
+
+# scale up prediction from resolution to 100km2
+(pred.dens <- get.real(model = top.model, type = "dens", newdata = pred.df.dens, d.factor = 100))
+
+# to estimate probability of being a male
+library(boot)
+inv.logit(-0.024) #psi.constant estimate of top model 
+# 0.4687
+# i.e. estimated probability of being a male is 46%
+# reflected in our density estimates by slightly higher male estimate
+
+
+
+## Step 6: Data visualisation ##
+## This part of the script creates data visualizations to display the results, 
+## including density maps and plots illustrating sex-specific estimates and 
+## session-specific density.
+
+# density map
+
+pred<- predict.oSCR(scrFrame=leop.sf,m3,ssDF=ss)
+
+par(mfrow=c(1,1))
+plot(pred$r[[1]])
+points(leop.tdf[,2:3],pch=20, lwd=0.5)
+title("Density")
+
+# plot session estimates by sex with overall density included
+# use lowest session specific model in AIC table
+
+sess.model <- m7
+
+# density
+# define the values we want to make prediction for
+pred.df.dens.sess <- data.frame(session = factor(1:5))
+
+# make predictions on the real scale
+(pred.dens.sess <- get.real(model = sess.model, type = "dens", newdata = pred.df.dens.sess))
+
+# scale up prediction from resolution to 1km2
+# resolution is 0.01km2 pixels so x100
+(pred.dens.sess <- get.real(model = sess.model, type = "dens", newdata = pred.df.dens.sess, d.factor = 100))
+
+est.tab <- rbind(pred.dens.sess[1:5,c(1,3,4)],
+                 pred.dens.sess[6:10,c(1,3,4)],
+                 pred.dens[1:2,c(1,3,4)])
+
+est.tab
+est.tab$Sex <- factor(c("Female","Female","Female","Female",
+                        "Female",
+                        "Male","Male","Male","Male","Male","Female","Male"))
+est.tab$Session <- factor(c("1","2","3","4","5",
+                            "1","2","3","4","5",
+                            "Constant","Constant"))
+est.tab
+
+# density per session (estimates per session with constant density at end)
+
+#this below makes a plot of the data, for the first plot it creates a graph with male and female values seperated
+
+gd <- ggplot(est.tab,aes(x=Session,y=estimate,fill=Sex)) +
+  geom_errorbar(aes(ymin=lwr,ymax=upr,width=0)) +
+  geom_point(aes(color=Sex,shape=Sex), size=3.5) +
+  scale_shape_manual(values=c(15,19)) + 
+  scale_color_manual(values=c("black", "black")) +
+  facet_grid(Sex~.) +
+  geom_vline(xintercept=9.5,linetype='dashed') +
+  theme_bw() +
+  ylab(expression(bold(Density~~"(per 100"*km^"2"*")"))) +
+  theme(axis.title.y = element_text(vjust = 2.5)) +
+  scale_y_continuous(limits=c(0,8),breaks=c(0,2,4,6,8)) +
+  theme(axis.text=element_text(colour="black")) +
+  theme(legend.position = "none") +    
+  theme(axis.title = element_text(face="bold"))
+gd
+
+
+# SAME PLOT BUT WITH MALE+FEMALE TOTAL ADDED
+est.tab.total <- rbind(pred.dens.sess[1:5,c(1,3,4)],
+                       pred.dens.sess[6:10,c(1,3,4)],
+                       pred.dens[1:2,c(1,3,4)],
+                       pred.dens.sess[1:5,c(1,3,4)]+pred.dens.sess[6:10,c(1,3,4)],
+                       pred.dens[1,c(1,3,4)]+pred.dens[2,c(1,3,4)])
+
+
+est.tab.total
+est.tab.total$Sex <- factor(c("Female","Female","Female","Female",
+                              "Female",
+                              "Male","Male","Male","Male",
+                              "Male",
+                              "Female","Male",
+                              "Total","Total","Total","Total","Total"))
+est.tab.total$Session <- factor(c("1","2","3","4","5",
+                                  "1","2","3","4","5", 
+                                  "Constant","Constant",
+                                  "1","2","3","4","5",
+                                  "Constant"))
+est.tab.total
+
+
+# density per session (estimates per session with constant density at end)
+
+gd1 <- ggplot(est.tab.total,aes(x=Session,y=estimate,fill=Sex)) +
+  geom_errorbar(aes(ymin=lwr,ymax=upr,width=0)) +
+  geom_point(size=4,shape=21) +
+  facet_grid(Sex~.,scales="free") +
+  geom_vline(xintercept=9.5,linetype='dashed') +
+  theme_bw() +
+  ylab(expression(bold(Density~~"(per 100"*km^"2"*")"))) +
+  theme(axis.title.y = element_text(vjust = 2.5)) +
+  scale_y_continuous(limits=c(0,14),breaks=c(0,2,4,6,8,10,14)) +
+  theme(axis.text=element_text(colour="black")) +
+  theme(axis.title = element_text(face="bold"))
+gd1
+
+
+# make a density map (will take a second to run)
+pred <- predict.oSCR(scrFrame = leop.sf, # whatever your scrFrame is called 
+                     m3, # your top model 
+                     ssDF = ss) # your state space
+# plot the density map 
+plot(pred$r[[1]])
+
+# save raster for export to GIS
+library(terra)
+writeRaster(pred[["r"]][[1]], filename="PNP_density_pred", overwrite=TRUE)
+save(filename="PNP_density_pred")
+
+
+# NOTE: need to run models on metre scale to be able to plot this in GIS!

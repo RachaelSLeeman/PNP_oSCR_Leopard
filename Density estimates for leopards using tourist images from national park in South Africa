@@ -1,19 +1,18 @@
 #Title: "oSCR analysis with non viable habitat removed for Tourist
   #image data using a 2km2 grid over reserve with central centroid location'
 #output: html_notebook
-# Script written by: Dr. Rob Davis, Nelson Mandela University 
+# Inital Script written by: Dr. Rob Davis, Nelson Mandela University 
                       # & Nottingham Trent University 
-                      # s226043789@mandela.ac.za
-# Anlysis undertaken by: Rachael Leeman, Nottingham Trent University  
+# Anlysis and script edits undertaken by: Rachael Leeman, Nottingham Trent University  
                       # rachael.leeman2015@my.ntu.ac.uk
 # Pilanesberg Shapefiles provided by: Dr. Richard Yarnell, Nottingham Trent 
                                       # Univeristy
-                                      # richard.yarnell@ntu.ac.uk
+                                      
   
-  #Script ran using RStudio 2023.09.1+494 "Desert Sunflower" Release 
-  #(cd7011dce393115d3a7c3db799dda4b1c7e88711, 2023-10-16) for macOS
+  #Script ran using RStudio 2024.09.1+394 "Cranberry Hibiscus" Release 
+  #(c8fc7aee, 2024-09-16) for macOS
 
-# Script last ran: 13th December 2023
+# Script last ran: 23th October 2024
   
 ##############################################################################
 
@@ -37,18 +36,18 @@ getwd()
 
 ## Step 1: Read in capture history & trap detection files ----
 ## This section reads in the capture history and trap detection data files from 
-## CSV files named "Tourist_16.17.18.21.22Ready.csv" and "tdf.leop.csv," 
+## CSV files named "EDF45DayCameraTouristRoadProxy.csv" and "PNP.smaller.tdf.csv" 
 ## respectively. It also performs some data cleaning operations. 
 
 # enter the detection history and trap detection:
 
 # detection history - ALL SESSIONS TOGETHER IN ONE FILE.
-leop_edf <- read.csv("Tourist_16.17.18.21.22Ready.csv")
+leop_edf <- read.csv("EDF45DayCameraTouristRoadProxy.csv")
 
 ### NOTE: sometimes for some reason when you import your datafiles 
 ## you get some additional unnecessary data in the first column, so sometimes you have to
 # duplicate the column and then remove the first one - code for this below
-#leop_edf <- subset(leop_edf)[,c(2:6)]
+#leop_edf <- subset(EDF45DayCameraTouristRoadProxy.csv)[,c(2:6)]
 # once sorted then.....
 
 # check data
@@ -57,7 +56,7 @@ head(leop_edf)
 tail(leop_edf)
 
 # trap array
-leop.tdf <- read.csv("tdf.leop.csv")
+leop.tdf <- read.csv("PNP.smaller.tdf.csv")
 
 # change X and Y to km scale
 leop.tdf$X <- leop.tdf$X/1000
@@ -89,9 +88,9 @@ leopard.data <-
             sex.col = which(colnames(leop_edf)%in%"Sex"),
             sex.nacode = "NA",
             K = c(180,181,182,180,183), #This is number of days per survey/session 
-            ntraps = rep(68)) #number of traps/ cells/centriod/grid squares per session
-                              # ours was consistent throughout, you may like the tdf section above need to add in additional infromation if this varied
-
+            ntraps = rep(68))  #number of traps/ cells/centriod/grid squares per session # ours was consistent throughout, you may like the tdf section above need to add in additional infromation if this varied
+            trapcov.names = c("road"), #we added in an additional covariate of road length per grid cell as a proxy for survey effort which isnt avaliable for this tourist presence only data
+            tdf.sep = "/") 
 
 # make scrFrame
 leop.sf <- leopard.data$scrFrame
@@ -247,20 +246,49 @@ m6 <- oSCR.fit(list(D~session,p0~sex,sig~1), leop.sf, ss, trimS=6, encmod = "B")
 # session specific density and sex specific detection and space use
 m7 <- oSCR.fit(list(D~session,p0~sex,sig~sex), leop.sf, ss, trimS=6, encmod = "B")
 
+# road specific detection and constant space use
+m8 <- oSCR.fit(list(D~1,p0~road,sig~1), leop.sf, ss, trimS=6, encmod = "B")
+
+# road specific detection and sex specific space use
+m9 <- oSCR.fit(list(D~1,p0~road,sig~sex), leop.sf, ss, trimS=6, encmod = "B")
+
+# road + sex specific detection and constant space use
+m10 <- oSCR.fit(list(D~1,p0~sex+road,sig~1), leop.sf, ss, trimS=6, encmod = "B")
+
+# road + sex specific detection and sex specific space use
+m11 <- oSCR.fit(list(D~1,p0~sex+road,sig~sex), leop.sf, ss,trimS=6, encmod = "B")
+
+# session-specific density, habitat + sex specific detection and sex specific space use
+m12 <- oSCR.fit(list(D~session,p0~sex+road,sig~sex), leop.sf, ss, trimS=6, encmod = "B")
+
+# Update the model to include survey_type - this is only necessary when using combined data - so two different survey types
+m13 <- oSCR.fit(list(D~1, p0~road + Survey_type, sig~1), leop.sf, ss, trimS=6, encmod = "B")
+
+# Another model with sex-specific space use
+m14 <- oSCR.fit(list(D~1, p0~road + survey_type, sig~sex), leop.sf, ss, trimS=6, encmod = "B")
+
+# Model with session-specific density, road, survey type, and sex-specific detection
+m15 <- oSCR.fit(list(D~session, p0~road + survey_type + sex, sig~sex), leop.sf, ss, trimS=6, encmod = "B")
+
+# Model with session-specific density, road, survey type, and sex-specific detection
+m16 <- oSCR.fit(list(D~session, p0~road + survey_type + sex, sig~1), leop.sf, ss, trimS=6, encmod = "B")
 
 ##~~~~~~~ save model outputs - This saves it having to be re-ran over again
-save(m0,m1,m2,m3,m4,m5,m6,m7,
+save(m0,m1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11,m12,
      file="SCR_models_output_15kmBuffer.RData"
-)
+)  # this just saving the first 12 models
+
+# Save the new models that have more than one survey type
+  save(m13, m14, m15, m16, file="SCR_models_with_survey_type45days.RData")
 
 
 ## Step 4: Model comparison ##
 ## The fitted models are evaluated and compared using 
 ## model selection criteria, such as AIC (Akaike Information Criterion).
 
-# fit list
+# fit list will need chaning based on how many models you used.
 fl <- fitList.oSCR(list(m0,m1,m2,m3,m4,m5,
-                        m6,m7),
+                        m6,m7,m8,m9,m10,m11,m12,m13,m14,m15,m16),
                    rename=TRUE)
 fl
 
@@ -274,18 +302,18 @@ ms$aic.tab
 
 ## Step 5: Model inference ---- you will need to make changes here to the 
 ## script depending on your results ##
-## The script selects a top model (in this case, m3) and conducts further 
+## The script selects a top model (in this case, m10) and conducts further 
 ## inference, including estimating parameters related to detection, density, 
 ## and sex-specific behavior.
 
-top.model <- m3
+top.model <- m10
 
 # model output:
 
-m3
+m10
 
-# detection lower for males (-0.295)
-# sigma higher for females in this case as males (0.456)
+# detection lower for males (-0.227)
+# sigma higher for females in this case as males (0.765)
 
 # sigma
 pred.df.sig <- data.frame(session = factor(c(1)), sex=factor(c(0,1)))
@@ -304,9 +332,9 @@ pred.df.dens <- data.frame(Session = factor(c(1)))
 
 # to estimate probability of being a male
 library(boot)
-inv.logit(-0.024) #psi.constant estimate of top model 
-# 0.4687
-# i.e. estimated probability of being a male is 46%
+inv.logit(0.083) #psi.constant estimate of top model 
+# 0.5207
+# i.e. estimated probability of being a male is 52%
 # reflected in our density estimates by slightly higher male estimate
 
 
@@ -318,7 +346,7 @@ inv.logit(-0.024) #psi.constant estimate of top model
 
 # density map
 
-pred<- predict.oSCR(scrFrame=leop.sf,m3,ssDF=ss)
+pred<- predict.oSCR(scrFrame=leop.sf,m10,ssDF=ss)
 
 par(mfrow=c(1,1))
 plot(pred$r[[1]])
@@ -326,9 +354,9 @@ points(leop.tdf[,2:3],pch=20, lwd=0.5)
 title("Density")
 
 # plot session estimates by sex with overall density included
-# use lowest session specific model in AIC table
+# use lowest session specific model in AIC table allows you to see a breakdown of estimates across each session
 
-sess.model <- m7
+sess.model <- m12
 
 # density
 # define the values we want to make prediction for

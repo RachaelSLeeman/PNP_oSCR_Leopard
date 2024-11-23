@@ -4,8 +4,8 @@
 This README documents the R script for analyzing tourist image data using the oSCR package with a focus on excluding non-viable habitats. The analysis is based on a 2 km² grid over a reserve area, with each grid having a central centroid location. This script was developed by Dr. Rob Davis from Nelson Mandela University & Nottingham Trent University, and the analysis was conducted by Rachael Leeman from Nottingham Trent University. The Pilanesberg shapefiles were provided by Dr. Richard Yarnell, also from Nottingham Trent University.
 
 ## Software Requirements
-- RStudio 2023.09.1+494 "Desert Sunflower" Release for macOS.
-- The script was last run on 13th December 2023.
+- RStudio 2024.09.1+394 "Cranberry Hibiscus" Release for macOS
+- The script was last run on 33th October 2024.
 
 ## Installation
 Before running the script, ensure you have the required packages installed. The script uses `githubinstall` and `devtools` to install the `oSCR` package directly from GitHub.
